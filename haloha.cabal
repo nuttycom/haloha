@@ -35,6 +35,7 @@ library
       Haloha.Plonk.Permutation
       Haloha.Plonk.Lookup
       Haloha.Plonk.Types
+      Haloha.Plonk.Test
       Haloha.Arithmetic.Fields.Fp
       Haloha.Arithmetic.Fields.Types
   -- other-modules:
