@@ -23,6 +23,7 @@ library
   build-depends:       
       base >=4.13
     , basement
+    , containers
     , vector-space
     , relude ^>= 0.6.0.0
   mixins:
@@ -30,7 +31,10 @@ library
     , relude (Relude as Prelude)
 
   exposed-modules:
-      Haloha.Circuit
+      Haloha.Plonk.Circuit
+      Haloha.Plonk.Permutation
+      Haloha.Plonk.Lookup
+      Haloha.Plonk.Types
       Haloha.Arithmetic.Fields.Fp
       Haloha.Arithmetic.Fields.Types
   -- other-modules:

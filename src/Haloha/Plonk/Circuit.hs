@@ -1,6 +1,6 @@
 {-# LANGUAGE GADTs #-}
 
-module Haloha.Circuit where
+module Haloha.Plonk.Circuit where
 
 -- PLONK:
 --     * keygen
@@ -31,59 +31,19 @@ module Haloha.Circuit where
 --
 --     verifier(Proof, VerifyingKey) -> bool
 
-import Prelude hiding (Product, Sum, Any)
-
-newtype Rotation = Rotation Int32
-
-newtype Index = Index Word64
-
-newtype PermIdx = PermIdx Word64
-
-newtype ColIdx = ColIdx Word64
-
-newtype RowIdx = RowIdx Word64
-
-data Fixed = Fixed
-
-data Advice = Advice
-
-data Aux = Aux
-
-data Sum a b = Sum a b
-
-data Product a b = Product a
-
-data Scaled a = Scaled a
-
-data Any
-  = FixedAny
-  | AdviceAny
-  | AuxAny
-
-data Column c
-  = Column
-      { index :: Index,
-        columnType :: c
-      }
-
-data Expr f (m :: * -> *) a where
-  FixedExpr :: Index -> Expr f m Fixed
-  AdviceExpr :: Index -> Expr f m Advice
-  AuxExpr :: Index -> Expr f m Aux
-  SumExpr :: Expr f m a -> Expr f m b -> Expr f m (Sum a b)
-  ProductExpr :: Expr f m a -> Expr f m b -> Expr f m (Product a b)
-  ScaledExpr :: Expr f m a -> f -> Expr f m (Scaled a)
+import qualified Haloha.Plonk.Lookup as Lookup
+import qualified Haloha.Plonk.Permutation as Permutation
+import Haloha.Plonk.Types
+import Prelude hiding (Any, Product, Sum)
 
 data CsOp f (m :: * -> *) a where
   Permutation :: [Column Advice] -> CsOp f m Index
   Lookup :: [Column Any] -> [Column Any] -> CsOp f m Index
-
   NewAdviceCol :: CsOp f m (Column Advice)
   NewFixedCol :: CsOp f m (Column Fixed)
   NewAuxCol :: CsOp f m (Column Aux)
   NewGate :: Expr f m a -> CsOp f m (m ())
   AddRotation :: Rotation -> CsOp f m ()
-
   QueryAdvice :: Column Advice -> Rotation -> CsOp f m (Expr f m Advice)
   QueryAdviceIndex :: Column Advice -> Rotation -> CsOp f m Index
   QueryFixed :: Column Fixed -> Rotation -> CsOp f m (Expr f m Fixed)
@@ -92,12 +52,10 @@ data CsOp f (m :: * -> *) a where
   QueryAuxIndex :: Column Aux -> Rotation -> CsOp f m Index
   QueryAny :: Column Any -> Rotation -> CsOp f m (Expr f m Any)
   QueryAnyIndex :: Column Any -> Rotation -> CsOp f m Index
-
   GetAdviceQueryIndex :: Column Advice -> Rotation -> CsOp f m Index
   GetFixedQueryIndex :: Column Fixed -> Rotation -> CsOp f m Index
   GetAuxQueryIndex :: Column Aux -> Rotation -> CsOp f m Index
   GetAnyQueryIndex :: Column Any -> Rotation -> CsOp f m Index
-
   Pure :: a -> CsOp f m a
   LiftA2 :: (a -> b -> c) -> CsOp f m a -> CsOp f m b -> CsOp f m c
 
@@ -107,3 +65,17 @@ data AssignOp f m a where
   AssignAdvice :: Column Advice -> RowIdx -> m (Either Error f) -> AssignOp f m (Either Error ())
   AssignFixed :: Column Fixed -> RowIdx -> m (Either Error f) -> AssignOp f m (Either Error ())
   Copy :: PermIdx -> ColIdx -> RowIdx -> ColIdx -> RowIdx -> AssignOp f m (Either Error ())
+
+data ConstraintSystem f m
+  = ConstraintSystem
+      { numFixedCols :: Word64,
+        numAdviceCols :: Word64,
+        numAuxCols :: Word64,
+        gates :: [AnyExpr f m],
+        adviceQueries :: [(Column Advice, Rotation)],
+        auxQueries :: [(Column Aux, Rotation)],
+        fixedQueries :: [(Column Fixed, Rotation)],
+        rotations :: Map Rotation PointIdx,
+        permutations :: [Permutation.Argument],
+        lookups :: [Lookup.Argument]
+      }
