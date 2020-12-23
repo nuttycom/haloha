@@ -1,4 +1,6 @@
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Haloha.Plonk.Circuit where
 
@@ -36,48 +38,73 @@ import qualified Haloha.Plonk.Permutation as Permutation
 import Haloha.Plonk.Types
 import Prelude hiding (Any, Product, Sum)
 
-data CsOp f (m :: * -> *) a where
-  Permutation :: [Column Advice] -> CsOp f m PermIdx
+data ColOp a where
+  NewAdviceCol :: ColOp (Column Advice)
+  NewFixedCol :: ColOp (Column Fixed)
+  NewAuxCol :: ColOp (Column Aux)
+  ColOpPure :: a -> ColOp a
+  ColOpLiftA2 :: (a -> b -> c) -> ColOp a -> ColOp b -> ColOp c
+
+instance Functor ColOp where
+  fmap f op = ColOpLiftA2 (\a _ -> f a) op (ColOpPure absurd)
+
+instance Applicative ColOp where
+  pure = ColOpPure
+  liftA2 = ColOpLiftA2
+
+data CsOp f a where
+  BindCols :: ColOp c -> CsOp f c
+  NewGate :: Expr f a -> CsOp f ()
+  Permutation :: [Column Advice] -> CsOp f PermIdx
   -- Should this be [Column Advice] -> [Column Fixed] -> ...
-  Lookup :: [Column Any] -> [Column Any] -> CsOp f m LookIdx
-  NewAdviceCol :: CsOp f m (Column Advice)
-  NewFixedCol :: CsOp f m (Column Fixed)
-  NewAuxCol :: CsOp f m (Column Aux)
-  NewGate :: Expr f a -> CsOp f m ()
-  QueryAdvice :: Column Advice -> Rotation -> CsOp f m (Expr f Advice)
-  QueryAdviceIndex :: Column Advice -> Rotation -> CsOp f m AdviceQueryIdx
-  QueryFixed :: Column Fixed -> Rotation -> CsOp f m (Expr f Fixed)
-  QueryFixedIndex :: Column Fixed -> Rotation -> CsOp f m FixedQueryIdx
-  QueryAux :: Column Aux -> Rotation -> CsOp f m (Expr f Aux)
-  QueryAuxIndex :: Column Aux -> Rotation -> CsOp f m AuxQueryIdx
-  QueryAny :: Column Any -> Rotation -> CsOp f m (Expr f Any)
-  QueryAnyIndex :: Column Any -> Rotation -> CsOp f m AnyQueryIdx
-  GetAdviceQueryIndex :: Column Advice -> Rotation -> CsOp f m AdviceQueryIdx
-  GetFixedQueryIndex :: Column Fixed -> Rotation -> CsOp f m FixedQueryIdx
-  GetAuxQueryIndex :: Column Aux -> Rotation -> CsOp f m AuxQueryIdx
-  GetAnyQueryIndex :: Column Any -> Rotation -> CsOp f m AnyQueryIdx
-  Pure :: a -> CsOp f m a
-  LiftA2 :: (a -> b -> c) -> CsOp f m a -> CsOp f m b -> CsOp f m c
-  Bind :: (a -> CsOp f m b) -> CsOp f m a -> CsOp f m b
+  Lookup :: [Column Any] -> [Column Any] -> CsOp f LookIdx
+  QueryAdvice :: Column Advice -> Rotation -> CsOp f (Expr f Advice)
+  QueryAdviceIndex :: Column Advice -> Rotation -> CsOp f AdviceQueryIdx
+  QueryFixed :: Column Fixed -> Rotation -> CsOp f (Expr f Fixed)
+  QueryFixedIndex :: Column Fixed -> Rotation -> CsOp f FixedQueryIdx
+  QueryAux :: Column Aux -> Rotation -> CsOp f (Expr f Aux)
+  QueryAuxIndex :: Column Aux -> Rotation -> CsOp f AuxQueryIdx
+  QueryAny :: Column Any -> Rotation -> CsOp f (Expr f Any)
+  QueryAnyIndex :: Column Any -> Rotation -> CsOp f AnyQueryIdx
+  GetAdviceQueryIndex :: Column Advice -> Rotation -> CsOp f AdviceQueryIdx
+  GetFixedQueryIndex :: Column Fixed -> Rotation -> CsOp f FixedQueryIdx
+  GetAuxQueryIndex :: Column Aux -> Rotation -> CsOp f AuxQueryIdx
+  GetAnyQueryIndex :: Column Any -> Rotation -> CsOp f AnyQueryIdx
+  CsPure :: a -> CsOp f a
+  CsBind :: (a -> CsOp f b) -> CsOp f a -> CsOp f b
 
-instance Functor (CsOp f m) where
-  fmap f op = LiftA2 (\a _ -> f a) op (Pure absurd)
+instance Functor (CsOp f) where
+  fmap f op = CsBind (CsPure . f) op
 
-instance Applicative (CsOp f m) where
-  pure = Pure
-  liftA2 = LiftA2
+instance Applicative (CsOp f) where
+  pure = CsPure
+  liftA2 f opA opB = CsBind (\a -> CsBind (CsPure . f a) opB) opA
 
-instance Monad (CsOp f m) where
-  (>>=) = flip Bind
+instance Monad (CsOp f) where
+  (>>=) = flip CsBind
 
-data Error
+data Error where
+  ColumnNotFound :: Column Advice -> Error
 
-data AssignOp f m a where
-  AssignAdvice :: Column Advice -> RowIdx -> m (Either Error f) -> AssignOp f m (Either Error ())
-  AssignFixed :: Column Fixed -> RowIdx -> m (Either Error f) -> AssignOp f m (Either Error ())
-  Copy :: PermIdx -> ColIdx -> RowIdx -> ColIdx -> RowIdx -> AssignOp f m (Either Error ())
+data AssignOp f a where
+  NewRow :: AssignOp f RowIdx
+  AssignAdvice :: Column Advice -> RowIdx -> f -> AssignOp f (Either Error ())
+  AssignFixed :: Column Fixed -> RowIdx -> f -> AssignOp f (Either Error ())
+  Copy :: PermIdx -> ColIdx -> RowIdx -> ColIdx -> RowIdx -> AssignOp f (Either Error ())
+  AssignPure :: a -> AssignOp f a
+  AssignBind :: (a -> AssignOp f b) -> AssignOp f a -> AssignOp f b
 
-data ConstraintSystem f m
+instance Functor (AssignOp f) where
+  fmap f op = AssignBind (AssignPure . f) op
+
+instance Applicative (AssignOp f) where
+  pure = AssignPure
+  liftA2 f opA opB = AssignBind (\a -> AssignBind (AssignPure . f a) opB) opA
+
+instance Monad (AssignOp f) where
+  (>>=) = flip AssignBind
+
+data ConstraintSystem f
   = ConstraintSystem
       { numFixedCols :: Word64,
         numAdviceCols :: Word64,
@@ -90,3 +117,7 @@ data ConstraintSystem f m
         permutations :: [Permutation.Argument],
         lookups :: [Lookup.Argument]
       }
+
+class (Field f) => Circuit f c where
+  configure :: CsOp f c
+  synthesize :: c -> AssignOp f (Either Error ()) -> AssignOp f (Either Error ())

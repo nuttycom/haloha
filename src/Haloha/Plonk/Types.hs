@@ -1,4 +1,5 @@
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Haloha.Plonk.Types where
 
@@ -7,6 +8,7 @@ import Prelude hiding (Any, Product, Sum)
 newtype Rotation = Rotation Int32
 
 newtype Index = Index Word64
+  deriving (Eq)
 
 newtype ColIdx = ColIdx Word64
 
@@ -15,6 +17,7 @@ newtype PermIdx = PermIdx Word64
 newtype LookIdx = LookIdx Word64
 
 newtype RowIdx = RowIdx Word64
+  deriving (Num, Enum)
 
 newtype PointIdx = PointIdx Word64
 
@@ -30,10 +33,13 @@ data AnyQueryIdx
   | AnyAux AuxQueryIdx
 
 data Fixed = Fixed
+  deriving (Eq)
 
 data Advice = Advice
+  deriving (Eq)
 
 data Aux = Aux
+  deriving (Eq)
 
 data Sum a b = Sum a b
 
@@ -51,15 +57,16 @@ data Column c
       { index :: Index,
         columnType :: c
       }
+  deriving (Eq)
 
 fixedToAny :: Column Fixed -> Column Any
-fixedToAny c = Column { index = index c, columnType = FixedAny }
+fixedToAny c = Column {index = index c, columnType = FixedAny}
 
 adviceToAny :: Column Advice -> Column Any
-adviceToAny c = Column { index = index c, columnType = AdviceAny }
+adviceToAny c = Column {index = index c, columnType = AdviceAny}
 
 auxToAny :: Column Aux -> Column Any
-auxToAny c = Column { index = index c, columnType = AuxAny }
+auxToAny c = Column {index = index c, columnType = AuxAny}
 
 data Variable
   = Variable
@@ -79,4 +86,6 @@ data AnyExpr f = forall a. AnyExpr (Expr f a)
 
 class Field f where
   fneg :: f -> f
+  fzero :: f
   fone :: f
+  fsquare :: f -> f
