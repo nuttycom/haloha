@@ -1,5 +1,6 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 module Haloha.Plonk.Types where
 
@@ -7,8 +8,20 @@ import Prelude hiding (Any, Product, Sum)
 
 newtype Rotation = Rotation Int32
 
-newtype Index = Index Word64
-  deriving (Eq)
+data Fixed = Fixed
+  deriving (Eq, Show)
+
+data Advice = Advice
+  deriving (Eq, Show)
+
+data Aux = Aux
+  deriving (Eq, Show)
+
+data Any
+  = FixedAny
+  | AdviceAny
+  | AuxAny
+  deriving (Eq, Show)
 
 newtype ColIdx = ColIdx Word64
 
@@ -21,52 +34,39 @@ newtype RowIdx = RowIdx Word64
 
 newtype PointIdx = PointIdx Word64
 
-newtype FixedQueryIdx = FixedQueryIdx Word64
-
-newtype AdviceQueryIdx = AdviceQueryIdx Word64
-
-newtype AuxQueryIdx = AuxQueryIdx Word64
-
-data AnyQueryIdx
-  = AnyFixed FixedQueryIdx
-  | AnyAdvice AdviceQueryIdx
-  | AnyAux AuxQueryIdx
-
-data Fixed = Fixed
-  deriving (Eq)
-
-data Advice = Advice
-  deriving (Eq)
-
-data Aux = Aux
-  deriving (Eq)
-
 data Sum a b = Sum a b
 
 data Product a b = Product a
 
 data Scaled a = Scaled a
 
-data Any
-  = FixedAny
-  | AdviceAny
-  | AuxAny
+data Column c where
+  FixedCol :: Word64 -> Column Fixed
+  AdviceCol :: Word64 -> Column Advice
+  AuxCol :: Word64 -> Column Aux
+  AnyCol :: Word64 -> Any -> Column Any
 
-data Column c
-  = Column
-      { index :: Index,
-        columnType :: c
-      }
-  deriving (Eq)
+deriving instance Eq (Column c)
 
-fixedToAny :: Column Fixed -> Column Any
-fixedToAny c = Column {index = index c, columnType = FixedAny}
+toAnyColumn :: Column a -> Column Any
+toAnyColumn = \case
+  FixedCol i -> AnyCol i FixedAny
+  AdviceCol i -> AnyCol i AdviceAny
+  AuxCol i -> AnyCol i AuxAny
+  AnyCol i a -> AnyCol i a
 
-adviceToAny :: Column Advice -> Column Any
-adviceToAny c = Column {index = index c, columnType = AdviceAny}
+data Index c where
+  FixedIdx :: Word64 -> Index Fixed
+  AdviceIdx :: Word64 -> Index Advice
+  AuxIdx :: Word64 -> Index Aux
+  AnyIdx :: Word64 -> Any -> Index Any
 
-auxToAny :: Column Aux -> Column Any
-auxToAny c = Column {index = index c, columnType = AuxAny}
+toAnyIdx :: Index a -> Index Any
+toAnyIdx = \case
+  FixedIdx i -> AnyIdx i FixedAny
+  AdviceIdx i -> AnyIdx i AdviceAny
+  AuxIdx i -> AnyIdx i AuxAny
+  AnyIdx i a -> AnyIdx i a
 
 data Variable
   = Variable
@@ -75,9 +75,7 @@ data Variable
       }
 
 data Expr f a where
-  FixedExpr :: Index -> Expr f Fixed
-  AdviceExpr :: Index -> Expr f Advice
-  AuxExpr :: Index -> Expr f Aux
+  ColExpr :: Index c -> Expr f c
   SumExpr :: Expr f a -> Expr f b -> Expr f (Sum a b)
   MulExpr :: Expr f a -> Expr f b -> Expr f (Product a b)
   ScaleExpr :: Expr f a -> f -> Expr f (Scaled a)
@@ -89,3 +87,4 @@ class Field f where
   fzero :: f
   fone :: f
   fsquare :: f -> f
+  fplus :: f -> f -> f

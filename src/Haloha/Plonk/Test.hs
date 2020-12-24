@@ -48,66 +48,16 @@ plonkCols =
     <*> NewFixedCol
     <*> NewAuxCol
 
-configure :: Field f => PlonkCols -> CsOp f PlonkConfig
-configure cols@(PlonkCols a b c d e sa sb sc sf sm sp sl sl2 p) = do
-  perm <- Permutation [a, b, c]
-  perm2 <- Permutation [a, b, c]
-  _ <- Lookup [adviceToAny a] [fixedToAny sl]
-  _ <- Lookup (adviceToAny <$> [a, b]) (fixedToAny <$> [sl, sl2])
-  let r0 = Rotation 0
-  dq <- QueryAdvice d (Rotation 1)
-  aq <- QueryAdvice a r0
-  sfq <- QueryFixed sf (Rotation 0)
-  eq <- QueryAdvice e r0
-  bq <- QueryAdvice b r0
-  cq <- QueryAdvice c r0
-  saq <- QueryFixed sa r0
-  sbq <- QueryFixed sb r0
-  scq <- QueryFixed sc r0
-  smq <- QueryFixed sm r0
-  _ <-
-    NewGate
-      ( SumExpr
-          (MulExpr aq saq)
-          ( SumExpr
-              (MulExpr bq sbq)
-              ( SumExpr
-                  (MulExpr aq (MulExpr bq smq))
-                  ( SumExpr
-                      (MulExpr cq (ScaleExpr scq (fneg fone)))
-                      (MulExpr sfq (MulExpr dq eq))
-                  )
-              )
-          )
-      )
-  pq <- QueryAux p r0
-  spq <- QueryFixed sp r0
-  _ <- NewGate (MulExpr spq (SumExpr aq (ScaleExpr pq (fneg fone))))
-  pure $
-    PlonkConfig
-      { _cols = cols,
-        _perm = perm,
-        _perm2 = perm2
-      }
 
-publicInput ::
-  forall f.
-  (Field f) =>
-  PlonkCols ->
-  f ->
-  AssignOp f (Either Error Variable)
-publicInput cfg f = runExceptT $ do
+assignPublicInput :: forall f. (Field f) => PlonkCols -> f -> AssignOp f (Either Error Variable)
+assignPublicInput cfg f = runExceptT $ do
   rowIdx <- lift $ NewRow
   ExceptT $ AssignAdvice (_a cfg) rowIdx f
   ExceptT $ AssignFixed (_sp cfg) rowIdx fone
   pure $ Variable (_a cfg) rowIdx
 
-lookupTable ::
-  forall f.
-  PlonkCols ->
-  [(f, f)] ->
-  AssignOp f (Either Error ())
-lookupTable cfg values =
+assignLookupTable :: forall f. PlonkCols -> [(f, f)] -> AssignOp f (Either Error ())
+assignLookupTable cfg values =
   runExceptT $ traverse_ (uncurry assignFixed) values
   where
     assignFixed :: f -> f -> ExceptT Error (AssignOp f) ()
@@ -157,5 +107,63 @@ copy cfg left right = runExceptT $ do
   ExceptT $ Copy (_perm cfg) leftCol (row left) rightCol (row right)
   ExceptT $ Copy (_perm2 cfg) leftCol (row left) rightCol (row right)
 
-synthesize :: (Field f) => PlonkConfig -> AssignOp f (Either Error ()) -> AssignOp f (Either Error ())
-synthesize = undefined
+data MyCircuit f = MyCircuit
+  { mcA :: f
+  , mclookupTables :: [(f, f)]
+  }
+
+configure :: Field f => PlonkCols -> CsOp f PlonkConfig
+configure cols@(PlonkCols a b c d e sa sb sc sf sm sp sl sl2 p) = do
+  perm <- NewPermutation [a, b, c]
+  perm2 <- NewPermutation [a, b, c]
+  _ <- NewLookup [toAnyColumn a] [toAnyColumn sl]
+  _ <- NewLookup (toAnyColumn <$> [a, b]) (toAnyColumn <$> [sl, sl2])
+  let r0 = Rotation 0
+  dq <- getColumnExpr d (Rotation 1)
+  aq <- getColumnExpr a r0
+  sfq <- getColumnExpr sf (Rotation 0)
+  eq <- getColumnExpr e r0
+  bq <- getColumnExpr b r0
+  cq <- getColumnExpr c r0
+  saq <- getColumnExpr sa r0
+  sbq <- getColumnExpr sb r0
+  scq <- getColumnExpr sc r0
+  smq <- getColumnExpr sm r0
+  _ <-
+    NewGate
+      ( SumExpr
+          (MulExpr aq saq)
+          ( SumExpr
+              (MulExpr bq sbq)
+              ( SumExpr
+                  (MulExpr aq (MulExpr bq smq))
+                  ( SumExpr
+                      (MulExpr cq (ScaleExpr scq (fneg fone)))
+                      (MulExpr sfq (MulExpr dq eq))
+                  )
+              )
+          )
+      )
+  pq <- getColumnExpr p r0
+  spq <- getColumnExpr sp r0
+  _ <- NewGate (MulExpr spq (SumExpr aq (ScaleExpr pq (fneg fone))))
+  pure $
+    PlonkConfig
+      { _cols = cols,
+        _perm = perm,
+        _perm2 = perm2
+      }
+
+synthesize :: (Field f) => MyCircuit f -> PlonkConfig -> AssignOp f (Either Error ())
+synthesize circuit cfg = runExceptT $ do
+  let a = mcA circuit
+      cols = _cols cfg
+      doSomething _ = do
+        (a0, _, c0) <- ExceptT $ rawMul cols (a, a, fsquare a)
+        (a1, b1, _) <- ExceptT $ rawAdd cols (a, fsquare a, fplus a (fsquare a))
+        ExceptT $ copy cfg a0 a1
+        ExceptT $ copy cfg b1 c0
+  void . ExceptT $ assignPublicInput (_cols cfg) (fone `fplus` fone)
+  traverse_ doSomething [(0 :: Int)..10]
+  ExceptT $ assignLookupTable cols (mclookupTables circuit)
+

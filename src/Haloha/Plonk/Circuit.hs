@@ -42,6 +42,7 @@ data ColOp a where
   NewAdviceCol :: ColOp (Column Advice)
   NewFixedCol :: ColOp (Column Fixed)
   NewAuxCol :: ColOp (Column Aux)
+  -- Replace with FreeAp (Coyoneda ColOp)
   ColOpPure :: a -> ColOp a
   ColOpLiftA2 :: (a -> b -> c) -> ColOp a -> ColOp b -> ColOp c
 
@@ -52,24 +53,32 @@ instance Applicative ColOp where
   pure = ColOpPure
   liftA2 = ColOpLiftA2
 
+data QueryOp a where
+  QueryIndex :: Column c -> Rotation -> QueryOp (Index c)
+  -- Replace with FreeAp (Coyoneda QueryOp)
+  QueryOpPure :: a -> QueryOp a
+  QueryOpLiftA2 :: (a -> b -> c) -> QueryOp a -> QueryOp b -> QueryOp c
+
+instance Functor QueryOp where
+  fmap f op = QueryOpLiftA2 (\a _ -> f a) op (QueryOpPure absurd)
+
+instance Applicative QueryOp where
+  pure = QueryOpPure
+  liftA2 = QueryOpLiftA2
+
+queryAnyIndex :: Column Any -> Rotation -> QueryOp (Index Any)
+queryAnyIndex (AnyCol i ctype) rot = case ctype of
+  FixedAny -> toAnyIdx <$> QueryIndex (FixedCol i) rot
+  AdviceAny -> toAnyIdx <$> QueryIndex (AdviceCol i) rot
+  AuxAny -> toAnyIdx <$> QueryIndex (AuxCol i) rot
+
 data CsOp f a where
-  BindCols :: ColOp c -> CsOp f c
   NewGate :: Expr f a -> CsOp f ()
-  Permutation :: [Column Advice] -> CsOp f PermIdx
+  NewPermutation :: [Column Advice] -> CsOp f PermIdx
   -- Should this be [Column Advice] -> [Column Fixed] -> ...
-  Lookup :: [Column Any] -> [Column Any] -> CsOp f LookIdx
-  QueryAdvice :: Column Advice -> Rotation -> CsOp f (Expr f Advice)
-  QueryAdviceIndex :: Column Advice -> Rotation -> CsOp f AdviceQueryIdx
-  QueryFixed :: Column Fixed -> Rotation -> CsOp f (Expr f Fixed)
-  QueryFixedIndex :: Column Fixed -> Rotation -> CsOp f FixedQueryIdx
-  QueryAux :: Column Aux -> Rotation -> CsOp f (Expr f Aux)
-  QueryAuxIndex :: Column Aux -> Rotation -> CsOp f AuxQueryIdx
-  QueryAny :: Column Any -> Rotation -> CsOp f (Expr f Any)
-  QueryAnyIndex :: Column Any -> Rotation -> CsOp f AnyQueryIdx
-  GetAdviceQueryIndex :: Column Advice -> Rotation -> CsOp f AdviceQueryIdx
-  GetFixedQueryIndex :: Column Fixed -> Rotation -> CsOp f FixedQueryIdx
-  GetAuxQueryIndex :: Column Aux -> Rotation -> CsOp f AuxQueryIdx
-  GetAnyQueryIndex :: Column Any -> Rotation -> CsOp f AnyQueryIdx
+  NewLookup :: [Column Any] -> [Column Any] -> CsOp f LookIdx
+  EvalQuery :: QueryOp a -> CsOp f a
+  -- Replace with Free (Coyoneda CsOp)
   CsPure :: a -> CsOp f a
   CsBind :: (a -> CsOp f b) -> CsOp f a -> CsOp f b
 
@@ -82,6 +91,9 @@ instance Applicative (CsOp f) where
 
 instance Monad (CsOp f) where
   (>>=) = flip CsBind
+
+getColumnExpr :: Column c -> Rotation -> CsOp f (Expr f c)
+getColumnExpr col rot = ColExpr <$> EvalQuery (QueryIndex col rot)
 
 data Error where
   ColumnNotFound :: Column Advice -> Error
