@@ -75,8 +75,7 @@ queryAnyIndex (AnyCol i ctype) rot = case ctype of
 data CsOp f a where
   NewGate :: Expr f a -> CsOp f ()
   NewPermutation :: [Column Advice] -> CsOp f PermIdx
-  -- Should this be [Column Advice] -> [Column Fixed] -> ...
-  NewLookup :: [Column Any] -> [Column Any] -> CsOp f LookIdx
+  NewLookup :: [(Column Any, Column Any)] -> CsOp f LookIdx
   EvalQuery :: QueryOp a -> CsOp f a
   -- Replace with Free (Coyoneda CsOp)
   CsPure :: a -> CsOp f a
@@ -130,6 +129,9 @@ data ConstraintSystem f
         lookups :: [Lookup.Argument]
       }
 
-class (Field f) => Circuit f c where
-  configure :: CsOp f c
-  synthesize :: c -> AssignOp f (Either Error ()) -> AssignOp f (Either Error ())
+data CircuitBuilder f
+  = forall cols c. CircuitBuilder
+      { initCols :: ColOp cols,
+        configure :: cols -> CsOp f c,
+        synthesize :: c -> AssignOp f (Either Error ())
+      }

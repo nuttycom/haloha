@@ -48,7 +48,6 @@ plonkCols =
     <*> NewFixedCol
     <*> NewAuxCol
 
-
 assignPublicInput :: forall f. (Field f) => PlonkCols -> f -> AssignOp f (Either Error Variable)
 assignPublicInput cfg f = runExceptT $ do
   rowIdx <- lift $ NewRow
@@ -93,7 +92,6 @@ rawAdd (PlonkCols a b c d _ sa sb sc _ sm _ _ _ _) (f0, f1, f2) = runExceptT $ d
   ExceptT $ AssignFixed sm rowIdx fzero
   pure $ (Variable a rowIdx, Variable b rowIdx, Variable c rowIdx)
 
-
 copy :: PlonkConfig -> Variable -> Variable -> AssignOp f (Either Error ())
 copy cfg left right = runExceptT $ do
   let cidx :: Variable -> Maybe ColIdx
@@ -107,17 +105,18 @@ copy cfg left right = runExceptT $ do
   ExceptT $ Copy (_perm cfg) leftCol (row left) rightCol (row right)
   ExceptT $ Copy (_perm2 cfg) leftCol (row left) rightCol (row right)
 
-data MyCircuit f = MyCircuit
-  { mcA :: f
-  , mclookupTables :: [(f, f)]
-  }
+data MyCircuit f
+  = MyCircuit
+      { mcA :: f,
+        mclookupTables :: [(f, f)]
+      }
 
-configure :: Field f => PlonkCols -> CsOp f PlonkConfig
-configure cols@(PlonkCols a b c d e sa sb sc sf sm sp sl sl2 p) = do
+mcConfigure :: Field f => PlonkCols -> CsOp f PlonkConfig
+mcConfigure cols@(PlonkCols a b c d e sa sb sc sf sm sp sl sl2 p) = do
   perm <- NewPermutation [a, b, c]
   perm2 <- NewPermutation [a, b, c]
-  _ <- NewLookup [toAnyColumn a] [toAnyColumn sl]
-  _ <- NewLookup (toAnyColumn <$> [a, b]) (toAnyColumn <$> [sl, sl2])
+  _ <- NewLookup [(toAnyColumn a, toAnyColumn sl)]
+  _ <- NewLookup ((toAnyColumn <$> [a, b]) `zip` (toAnyColumn <$> [sl, sl2]))
   let r0 = Rotation 0
   dq <- getColumnExpr d (Rotation 1)
   aq <- getColumnExpr a r0
@@ -154,8 +153,8 @@ configure cols@(PlonkCols a b c d e sa sb sc sf sm sp sl sl2 p) = do
         _perm2 = perm2
       }
 
-synthesize :: (Field f) => MyCircuit f -> PlonkConfig -> AssignOp f (Either Error ())
-synthesize circuit cfg = runExceptT $ do
+mcSynthesize :: (Field f) => MyCircuit f -> PlonkConfig -> AssignOp f (Either Error ())
+mcSynthesize circuit cfg = runExceptT $ do
   let a = mcA circuit
       cols = _cols cfg
       doSomething _ = do
@@ -164,6 +163,16 @@ synthesize circuit cfg = runExceptT $ do
         ExceptT $ copy cfg a0 a1
         ExceptT $ copy cfg b1 c0
   void . ExceptT $ assignPublicInput (_cols cfg) (fone `fplus` fone)
-  traverse_ doSomething [(0 :: Int)..10]
+  traverse_ doSomething [(0 :: Int) .. 10]
   ExceptT $ assignLookupTable cols (mclookupTables circuit)
 
+myCircuitBuilder ::
+  Field f =>
+  MyCircuit f ->
+  CircuitBuilder f
+myCircuitBuilder mc =
+  CircuitBuilder
+    { initCols = plonkCols,
+      configure = mcConfigure,
+      synthesize = mcSynthesize mc
+    }
