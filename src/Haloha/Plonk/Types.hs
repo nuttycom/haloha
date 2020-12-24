@@ -30,7 +30,7 @@ newtype PermIdx = PermIdx Word64
 newtype LookIdx = LookIdx Word64
 
 newtype RowIdx = RowIdx Word64
-  deriving (Num, Enum)
+  deriving (Enum)
 
 newtype PointIdx = PointIdx Word64
 
@@ -79,6 +79,18 @@ data Expr f a where
   SumExpr :: Expr f a -> Expr f b -> Expr f (Sum a b)
   MulExpr :: Expr f a -> Expr f b -> Expr f (Product a b)
   ScaleExpr :: Expr f a -> f -> Expr f (Scaled a)
+
+(+) :: Expr f a -> Expr f b -> Expr f (Sum a b)
+(+) = SumExpr
+infixl 6 +
+
+(*) :: Expr f a -> Expr f b -> Expr f (Product a b)
+(*) = MulExpr
+infixl 7 *
+
+(^*) :: Expr f a -> f -> Expr f (Scaled a)
+(^*) = ScaleExpr
+infixl 8 ^*
 
 data AnyExpr f = forall a. AnyExpr (Expr f a)
 

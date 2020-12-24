@@ -1,5 +1,6 @@
 module Haloha.Plonk.Test where
 
+import Prelude hiding (Num(..))
 import Control.Error.Util (note)
 import Control.Monad.Except (liftEither)
 import Haloha.Plonk.Circuit
@@ -128,24 +129,10 @@ mcConfigure cols@(PlonkCols a b c d e sa sb sc sf sm sp sl sl2 p) = do
   sbq <- getColumnExpr sb r0
   scq <- getColumnExpr sc r0
   smq <- getColumnExpr sm r0
-  _ <-
-    NewGate
-      ( SumExpr
-          (MulExpr aq saq)
-          ( SumExpr
-              (MulExpr bq sbq)
-              ( SumExpr
-                  (MulExpr aq (MulExpr bq smq))
-                  ( SumExpr
-                      (MulExpr cq (ScaleExpr scq (fneg fone)))
-                      (MulExpr sfq (MulExpr dq eq))
-                  )
-              )
-          )
-      )
+  _ <- NewGate $ aq * saq + bq * sbq + aq * bq * smq + cq * scq ^* fneg fone + sfq * dq * eq
   pq <- getColumnExpr p r0
   spq <- getColumnExpr sp r0
-  _ <- NewGate (MulExpr spq (SumExpr aq (ScaleExpr pq (fneg fone))))
+  _ <- NewGate $ spq * (aq + pq ^* (fneg fone))
   pure $
     PlonkConfig
       { _cols = cols,
