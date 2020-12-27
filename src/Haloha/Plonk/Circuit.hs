@@ -36,7 +36,7 @@ module Haloha.Plonk.Circuit where
 import qualified Haloha.Plonk.Lookup as Lookup
 import qualified Haloha.Plonk.Permutation as Permutation
 import Haloha.Plonk.Types
-import Prelude hiding (Any, Product, Sum)
+import Prelude hiding (Any, Product, Sum, init)
 
 data ColOp a where
   NewAdviceCol :: ColOp (Column Advice)
@@ -97,22 +97,22 @@ instance Monad (CsOp f) where
 data Error where
   ColumnNotFound :: Column Advice -> Error
 
-data AssignOp f a where
-  NewRow :: AssignOp f RowIdx
-  AssignAdvice :: Column Advice -> RowIdx -> f -> AssignOp f (Either Error ())
-  AssignFixed :: Column Fixed -> RowIdx -> f -> AssignOp f (Either Error ())
-  Copy :: PermIdx -> ColIdx -> RowIdx -> ColIdx -> RowIdx -> AssignOp f (Either Error ())
-  AssignPure :: a -> AssignOp f a
-  AssignBind :: (a -> AssignOp f b) -> AssignOp f a -> AssignOp f b
+data SynthOp f a where
+  NewRow :: SynthOp f RowIdx
+  AssignAdvice :: Column Advice -> RowIdx -> f -> SynthOp f (Either Error ())
+  AssignFixed :: Column Fixed -> RowIdx -> f -> SynthOp f (Either Error ())
+  Copy :: PermIdx -> ColIdx -> RowIdx -> ColIdx -> RowIdx -> SynthOp f (Either Error ())
+  AssignPure :: a -> SynthOp f a
+  AssignBind :: (a -> SynthOp f b) -> SynthOp f a -> SynthOp f b
 
-instance Functor (AssignOp f) where
+instance Functor (SynthOp f) where
   fmap f op = AssignBind (AssignPure . f) op
 
-instance Applicative (AssignOp f) where
+instance Applicative (SynthOp f) where
   pure = AssignPure
   liftA2 f oa ob = AssignBind (\b -> fmap (flip f b) oa) ob
 
-instance Monad (AssignOp f) where
+instance Monad (SynthOp f) where
   (>>=) = flip AssignBind
 
 data ConstraintSystem f
@@ -130,9 +130,19 @@ data ConstraintSystem f
       }
 
 data CircuitBuilder f
-  = forall cols exprs cfg. CircuitBuilder
+  = forall cols exprs cfg.
+    CircuitBuilder
       { init :: ColOp cols,
         query :: cols -> QueryOp exprs,
         configure :: cols -> exprs -> CsOp f cfg,
-        synthesize :: cfg -> AssignOp f (Either Error ())
+        synthesize :: cfg -> SynthOp f (Either Error ())
+      }
+
+instance Semigroup (CircuitBuilder f) where
+  (CircuitBuilder i1 q1 c1 s1) <> (CircuitBuilder i2 q2 c2 s2) =
+    CircuitBuilder
+      { init = (,) <$> i1 <*> i2,
+        query = \(cols1, cols2) -> (,) <$> q1 cols1 <*> q2 cols2,
+        configure = \(cols1, cols2) (exprs1, exprs2) -> (,) <$> c1 cols1 exprs1 <*> c2 cols2 exprs2,
+        synthesize = \(cfg1, cfg2) -> s1 cfg1 *> s2 cfg2
       }

@@ -52,24 +52,24 @@ plonkCols =
     <*> NewFixedCol
     <*> NewAuxCol
 
-assignPublicInput :: forall f. (Field f) => PlonkCols -> f -> AssignOp f (Either Error Variable)
+assignPublicInput :: forall f. (Field f) => PlonkCols -> f -> SynthOp f (Either Error Variable)
 assignPublicInput cfg f = runExceptT $ do
   rowIdx <- lift $ NewRow
   ExceptT $ AssignAdvice (_a cfg) rowIdx f
   ExceptT $ AssignFixed (_sp cfg) rowIdx fone
   pure $ Variable (_a cfg) rowIdx
 
-assignLookupTable :: forall f. PlonkCols -> [(f, f)] -> AssignOp f (Either Error ())
+assignLookupTable :: forall f. PlonkCols -> [(f, f)] -> SynthOp f (Either Error ())
 assignLookupTable cfg values =
   runExceptT $ traverse_ (uncurry assignFixed) values
   where
-    assignFixed :: f -> f -> ExceptT Error (AssignOp f) ()
+    assignFixed :: f -> f -> ExceptT Error (SynthOp f) ()
     assignFixed v0 v1 = do
       rowIdx <- lift $ NewRow
       ExceptT $ AssignFixed (_sl cfg) rowIdx v0
       ExceptT $ AssignFixed (_sl2 cfg) rowIdx v1
 
-rawMul :: Field f => PlonkCols -> (f, f, f) -> AssignOp f (Either Error (Variable, Variable, Variable))
+rawMul :: Field f => PlonkCols -> (f, f, f) -> SynthOp f (Either Error (Variable, Variable, Variable))
 rawMul (PlonkCols a b c d e sa sb sc _ sm _ _ _ _) (f0, f1, f2) = runExceptT $ do
   rowIdx <- lift $ NewRow
   ExceptT $ AssignAdvice a rowIdx f0
@@ -83,7 +83,7 @@ rawMul (PlonkCols a b c d e sa sb sc _ sm _ _ _ _) (f0, f1, f2) = runExceptT $ d
   ExceptT $ AssignFixed sm rowIdx fone
   pure $ (Variable a rowIdx, Variable b rowIdx, Variable c rowIdx)
 
-rawAdd :: Field f => PlonkCols -> (f, f, f) -> AssignOp f (Either Error (Variable, Variable, Variable))
+rawAdd :: Field f => PlonkCols -> (f, f, f) -> SynthOp f (Either Error (Variable, Variable, Variable))
 rawAdd (PlonkCols a b c d _ sa sb sc _ sm _ _ _ _) (f0, f1, f2) = runExceptT $ do
   rowIdx <- lift $ NewRow
   ExceptT $ AssignAdvice a rowIdx f0
@@ -96,7 +96,7 @@ rawAdd (PlonkCols a b c d _ sa sb sc _ sm _ _ _ _) (f0, f1, f2) = runExceptT $ d
   ExceptT $ AssignFixed sm rowIdx fzero
   pure $ (Variable a rowIdx, Variable b rowIdx, Variable c rowIdx)
 
-copy :: PlonkConfig -> Variable -> Variable -> AssignOp f (Either Error ())
+copy :: PlonkConfig -> Variable -> Variable -> SynthOp f (Either Error ())
 copy cfg left right = runExceptT $ do
   let cidx :: Variable -> Maybe ColIdx
       cidx v = case column v of
@@ -169,7 +169,7 @@ mcConfigure cols@(PlonkCols {..}) (PlonkExprs {..}) = do
         _perm2 = perm2
       }
 
-mcSynthesize :: (Field f) => MyCircuit f -> PlonkConfig -> AssignOp f (Either Error ())
+mcSynthesize :: (Field f) => MyCircuit f -> PlonkConfig -> SynthOp f (Either Error ())
 mcSynthesize circuit cfg = runExceptT $ do
   let a = mcA circuit
       cols = _cols cfg
