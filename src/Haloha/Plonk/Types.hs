@@ -82,14 +82,17 @@ data Expr f a where
 
 (+) :: Expr f a -> Expr f b -> Expr f (Sum a b)
 (+) = SumExpr
+
 infixl 6 +
 
 (*) :: Expr f a -> Expr f b -> Expr f (Product a b)
 (*) = MulExpr
+
 infixl 7 *
 
 (^*) :: Expr f a -> f -> Expr f (Scaled a)
 (^*) = ScaleExpr
+
 infixl 8 ^*
 
 data AnyExpr f = forall a. AnyExpr (Expr f a)

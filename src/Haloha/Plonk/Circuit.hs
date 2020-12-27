@@ -72,6 +72,9 @@ queryAnyIndex (AnyCol i ctype) rot = case ctype of
   AdviceAny -> toAnyIdx <$> QueryIndex (AdviceCol i) rot
   AuxAny -> toAnyIdx <$> QueryIndex (AuxCol i) rot
 
+getColumnExpr :: Column c -> Rotation -> QueryOp (Expr f c)
+getColumnExpr col rot = ColExpr <$> QueryIndex col rot
+
 data CsOp f a where
   NewGate :: Expr f a -> CsOp f ()
   NewPermutation :: [Column Advice] -> CsOp f PermIdx
@@ -91,9 +94,6 @@ instance Applicative (CsOp f) where
 instance Monad (CsOp f) where
   (>>=) = flip CsBind
 
-getColumnExpr :: Column c -> Rotation -> CsOp f (Expr f c)
-getColumnExpr col rot = ColExpr <$> EvalQuery (QueryIndex col rot)
-
 data Error where
   ColumnNotFound :: Column Advice -> Error
 
@@ -110,7 +110,7 @@ instance Functor (AssignOp f) where
 
 instance Applicative (AssignOp f) where
   pure = AssignPure
-  liftA2 f opA opB = AssignBind (\a -> AssignBind (AssignPure . f a) opB) opA
+  liftA2 f oa ob = AssignBind (\b -> fmap (flip f b) oa) ob
 
 instance Monad (AssignOp f) where
   (>>=) = flip AssignBind
@@ -130,8 +130,9 @@ data ConstraintSystem f
       }
 
 data CircuitBuilder f
-  = forall cols c. CircuitBuilder
-      { initCols :: ColOp cols,
-        configure :: cols -> CsOp f c,
-        synthesize :: c -> AssignOp f (Either Error ())
+  = forall cols exprs cfg. CircuitBuilder
+      { init :: ColOp cols,
+        query :: cols -> QueryOp exprs,
+        configure :: cols -> exprs -> CsOp f cfg,
+        synthesize :: cfg -> AssignOp f (Either Error ())
       }

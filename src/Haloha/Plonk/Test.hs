@@ -1,10 +1,13 @@
+{-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE RecordWildCards #-}
+
 module Haloha.Plonk.Test where
 
-import Prelude hiding (Num(..))
 import Control.Error.Util (note)
 import Control.Monad.Except (liftEither)
 import Haloha.Plonk.Circuit
 import Haloha.Plonk.Types
+import Prelude hiding (Num (..))
 
 data PlonkCols
   = PlonkCols
@@ -112,27 +115,53 @@ data MyCircuit f
         mclookupTables :: [(f, f)]
       }
 
-mcConfigure :: Field f => PlonkCols -> CsOp f PlonkConfig
-mcConfigure cols@(PlonkCols a b c d e sa sb sc sf sm sp sl sl2 p) = do
-  perm <- NewPermutation [a, b, c]
-  perm2 <- NewPermutation [a, b, c]
-  _ <- NewLookup [(toAnyColumn a, toAnyColumn sl)]
-  _ <- NewLookup ((toAnyColumn <$> [a, b]) `zip` (toAnyColumn <$> [sl, sl2]))
+data PlonkExprs f
+  = PlonkExprs
+      { _aExpr :: Expr f Advice,
+        _bExpr :: Expr f Advice,
+        _cExpr :: Expr f Advice,
+        _dExpr :: Expr f Advice,
+        _eExpr :: Expr f Advice,
+        _saExpr :: Expr f Fixed,
+        _sbExpr :: Expr f Fixed,
+        _scExpr :: Expr f Fixed,
+        _sfExpr :: Expr f Fixed,
+        _smExpr :: Expr f Fixed,
+        _spExpr :: Expr f Fixed,
+        _pExpr :: Expr f Aux
+      }
+
+mcQuery :: PlonkCols -> QueryOp (PlonkExprs f)
+mcQuery (PlonkCols a b c d e sa sb sc sf sm sp _ _ p) = do
   let r0 = Rotation 0
-  dq <- getColumnExpr d (Rotation 1)
-  aq <- getColumnExpr a r0
-  sfq <- getColumnExpr sf (Rotation 0)
-  eq <- getColumnExpr e r0
-  bq <- getColumnExpr b r0
-  cq <- getColumnExpr c r0
-  saq <- getColumnExpr sa r0
-  sbq <- getColumnExpr sb r0
-  scq <- getColumnExpr sc r0
-  smq <- getColumnExpr sm r0
-  _ <- NewGate $ aq * saq + bq * sbq + aq * bq * smq + cq * scq ^* fneg fone + sfq * dq * eq
-  pq <- getColumnExpr p r0
-  spq <- getColumnExpr sp r0
-  _ <- NewGate $ spq * (aq + pq ^* (fneg fone))
+  _aExpr <- getColumnExpr a r0
+  _dExpr <- getColumnExpr d (Rotation 1)
+  _eExpr <- getColumnExpr e r0
+  _bExpr <- getColumnExpr b r0
+  _cExpr <- getColumnExpr c r0
+  _saExpr <- getColumnExpr sa r0
+  _sbExpr <- getColumnExpr sb r0
+  _scExpr <- getColumnExpr sc r0
+  _sfExpr <- getColumnExpr sf (Rotation 0)
+  _smExpr <- getColumnExpr sm r0
+  _spExpr <- getColumnExpr sp r0
+  _pExpr <- getColumnExpr p r0
+  pure $ PlonkExprs {..}
+
+mcConfigure :: Field f => PlonkCols -> PlonkExprs f -> CsOp f PlonkConfig
+mcConfigure cols@(PlonkCols {..}) (PlonkExprs {..}) = do
+  perm <- NewPermutation [_a, _b, _c]
+  perm2 <- NewPermutation [_a, _b, _c]
+  _ <- NewLookup [(toAnyColumn _a, toAnyColumn _sl)]
+  _ <- NewLookup ((toAnyColumn <$> [_a, _b]) `zip` (toAnyColumn <$> [_sl, _sl2]))
+  _ <-
+    NewGate $
+      _aExpr * _saExpr
+        + _bExpr * _sbExpr
+        + _aExpr * _bExpr * _smExpr
+        + _cExpr * _scExpr ^* fneg fone
+        + _sfExpr * _dExpr * _eExpr
+  _ <- NewGate $ _spExpr * (_aExpr + _pExpr ^* (fneg fone))
   pure $
     PlonkConfig
       { _cols = cols,
@@ -159,7 +188,8 @@ myCircuitBuilder ::
   CircuitBuilder f
 myCircuitBuilder mc =
   CircuitBuilder
-    { initCols = plonkCols,
+    { init = plonkCols,
+      query = mcQuery,
       configure = mcConfigure,
       synthesize = mcSynthesize mc
     }
